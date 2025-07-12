@@ -1,0 +1,17 @@
+/* Global styles
+---------------------------------*/
+html {
+  box-sizing: border-box;
+}
+*, *:before, *:after{
+  box-sizing: inherit;
+}
+
+body {
+  color: #343434;
+  margin: 0;
+  padding: 0;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
