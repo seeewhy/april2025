@@ -33,6 +33,7 @@ helm version
 ----------------------------------------------------------------------------------
 #RUN THIS ON YOUR COMMAND PROMPT AFTER CONFIGURING AWS CREDENTIALS TO DEPLOY
 
+
 aws cloudformation deploy \
   --template-file eks-cluster-setup.yaml \
   --stack-name eks-staging-cluster \
@@ -42,7 +43,7 @@ aws cloudformation deploy \
     ClusterName=afritech_eks-cluster \
     Region=us-west-2 \
     VpcId=vpc-084c3681dfa12a223 \
-    PrivateSubnetIds='["subnet-00c07911cf6b9bbc1","subnet-0889a534df253f426"]' \
+    PrivateSubnetIds=subnet-00c07911cf6b9bbc1,subnet-0889a534df253f426 \
     InstanceType=t3.medium \
     EKSVersion=1.29 \
     VPCCIDR=10.0.0.0/16 \
