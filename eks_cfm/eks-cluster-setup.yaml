@@ -63,7 +63,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: EKS Cluster security group
-      VpcId: vpc-1234567890abcdef0
+      VpcId: vpc-084c3681dfa12a223
       SecurityGroupIngress:
         - Description: Allow self-referencing intra-node traffic
           IpProtocol: -1

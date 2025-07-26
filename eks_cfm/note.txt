@@ -41,8 +41,8 @@ aws cloudformation deploy \
     Environment=staging \
     ClusterName=afritech_eks-cluster \
     Region=us-west-2 \
-    VpcId=vpc-1234567890abcdef0 \
-    PrivateSubnetIds='["subnet-aaa111aaa111aaa11","subnet-bbb222bbb222bbb22"]' \
+    VpcId=vpc-084c3681dfa12a223 \
+    PrivateSubnetIds='["subnet-00c07911cf6b9bbc1","subnet-0889a534df253f426"]' \
     InstanceType=t3.medium \
     EKSVersion=1.29 \
     VPCCIDR=10.0.0.0/16 \
