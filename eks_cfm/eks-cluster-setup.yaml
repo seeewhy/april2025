@@ -1,0 +1,237 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EKS Cluster Setup in staging (us-west-2) with private endpoint, managed node groups, add-ons, and IRSA.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: staging
+  ClusterName:
+    Type: String
+    Default: afritech-eks-cluster
+  Region:
+    Type: String
+    Default: us-west-2
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  InstanceType:
+    Type: String
+    Default: t3.medium
+  EKSVersion:
+    Type: String
+    Default: "1.29"
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: "/aws/service/eks/optimized-ami/1.29/amazon-linux-2/recommended/image_id"
+  VPCCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+
+Resources:
+
+  EKSClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
+  NodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+
+  EKSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EKS Cluster security group
+      VpcId: vpc-1234567890abcdef0
+      SecurityGroupIngress:
+        - Description: Allow self-referencing intra-node traffic
+          IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          SourceSecurityGroupId: !Ref EKSSecurityGroup
+
+        - Description: Allow HTTPS (443) access within VPC
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VPCCIDR
+
+        - Description: Allow Kubelet (10250) access within VPC
+          IpProtocol: tcp
+          FromPort: 10250
+          ToPort: 10250
+          CidrIp: !Ref VPCCIDR
+
+        - Description: Allow ALB controller webhook access (9443)
+          IpProtocol: tcp
+          FromPort: 9443
+          ToPort: 9443
+          CidrIp: !Ref VPCCIDR
+
+  EKSCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref ClusterName
+      Version: !Ref EKSVersion
+      RoleArn: !GetAtt EKSClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        EndpointPrivateAccess: true
+        EndpointPublicAccess: false
+        SecurityGroupIds:
+          - !Ref EKSSecurityGroup
+
+  EKSLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -o xtrace
+            /etc/eks/bootstrap.sh ${ClusterName} --kubelet-extra-args '--node-labels=env=${Environment}'
+        ImageId: !Ref ImageId
+
+  NodeGroupOne:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref ClusterName
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      Subnets: !Ref PrivateSubnetIds
+      LaunchTemplate:
+        Name: !Ref EKSLaunchTemplate
+        Version: "$Latest"
+      ScalingConfig:
+        MinSize: 1
+        MaxSize: 3
+        DesiredSize: 2
+      Tags:
+        - Key: Name
+          Value: !Sub "${ClusterName}-nodegroup-1"
+
+  NodeGroupTwo:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref ClusterName
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      Subnets: !Ref PrivateSubnetIds
+      LaunchTemplate:
+        Name: !Ref EKSLaunchTemplate
+        Version: "$Latest"
+      ScalingConfig:
+        MinSize: 1
+        MaxSize: 3
+        DesiredSize: 2
+      Tags:
+        - Key: Name
+          Value: !Sub "${ClusterName}-nodegroup-2"
+
+  VpcCniAddon:
+    Type: AWS::EKS::Addon
+    Properties:
+      ClusterName: !Ref ClusterName
+      AddonName: vpc-cni
+      AddonVersion: "v1.18.1-eksbuild.1"
+
+  CoreDNSAddon:
+    Type: AWS::EKS::Addon
+    Properties:
+      ClusterName: !Ref ClusterName
+      AddonName: coredns
+      AddonVersion: "v1.10.1-eksbuild.1"
+
+  KubeProxyAddon:
+    Type: AWS::EKS::Addon
+    Properties:
+      ClusterName: !Ref ClusterName
+      AddonName: kube-proxy
+      AddonVersion: "v1.29.0-eksbuild.1"
+
+  EbsCsiDriverAddon:
+    Type: AWS::EKS::Addon
+    Properties:
+      ClusterName: !Ref ClusterName
+      AddonName: aws-ebs-csi-driver
+      AddonVersion: "v1.25.0-eksbuild.1"
+
+  OIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: !Sub "https://oidc.eks.${Region}.amazonaws.com/id/${ClusterName}"
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - "9e99a48a9960b14926bb7f3b02e22da0afd10df6"
+
+  ALBControllerIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "ALBControllerIAMPolicy-${Environment}"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - elasticloadbalancing:*
+              - ec2:Describe*
+              - iam:ListServerCertificates
+              - iam:GetServerCertificate
+              - iam:CreateServiceLinkedRole
+              - cognito-idp:DescribeUserPoolClient
+              - waf-regional:GetWebACL
+              - tag:GetResources
+              - tag:TagResources
+              - waf:GetWebACL
+              - shield:GetSubscriptionState
+              - shield:DescribeProtection
+              - shield:GetProtection
+              - acm:DescribeCertificate
+              - acm:ListCertificates
+            Resource: "*"
+
+  ALBControllerServiceAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "AmazonEKSLoadBalancerControllerRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref OIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                oidc.eks.${Region}.amazonaws.com/id/${ClusterName}:sub: system:serviceaccount:kube-system:aws-load-balancer-controller
+      ManagedPolicyArns:
+        - !Ref ALBControllerIAMPolicy
+
+Outputs:
+  ClusterName:
+    Value: !Ref EKSCluster
+  ClusterEndpoint:
+    Value: !GetAtt EKSCluster.Endpoint
+  ClusterSecurityGroup:
+    Value: !Ref EKSSecurityGroup
