@@ -49,3 +49,13 @@ aws cloudformation deploy \
     VPCCIDR=10.0.0.0/16 \
   --profile default
 
+-------------------------------------------------------------------------------
+# Create aws secrets 
+aws secretsmanager create-secret --name postgresql-ha-master-password --secret-string "shgdy%4HtsIjy7k!jg"
+aws secretsmanager create-secret --name postgresql-ha-replication-password --secret-string "shgdy%4HtsIjy7k!jg"
+
+# Then Execute
+
+chmod +x eks-post-deploy.sh
+./eks-post-deploy.sh
+

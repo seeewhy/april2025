@@ -1,59 +1,87 @@
 #!/bin/bash
 
 set -euo pipefail
+set -x  # Trace for debugging
 
-# Input: Replace these with your actual values or export them as env vars
-CLUSTER_NAME=${CLUSTER_NAME:-afritech-eks-cluster}
-REGION=${REGION:-us-east-2}
+CLUSTER_NAME="afritech-eks-cluster"
+REGION="us-east-2"
 NAMESPACE="kube-system"
-DATADOG_API_KEY=${DATADOG_API_KEY:-"REPLACE_ME"}
+DD_NAMESPACE="datadog"
+POSTGRES_NAMESPACE="database"
+POSTGRES_RELEASE_NAME="postgresql-ha"
 
-# Fetch AWS Account ID
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
-# IAM role name based on CloudFormation
-ALB_ROLE_NAME="AmazonEKSLoadBalancerControllerRole-staging"
-ALB_IAM_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/${ALB_ROLE_NAME}"
-
-# Update kubeconfig
-echo "Updating kubeconfig for cluster ${CLUSTER_NAME}..."
+echo "[INFO] Updating kubeconfig for cluster: $CLUSTER_NAME"
 aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME"
 
-# Create service account for ALB controller (if not exists)
-if ! kubectl get serviceaccount aws-load-balancer-controller -n "$NAMESPACE" > /dev/null 2>&1; then
-  echo "Creating Kubernetes service account for ALB Controller..."
-  kubectl create serviceaccount aws-load-balancer-controller -n "$NAMESPACE"
-  kubectl annotate serviceaccount -n "$NAMESPACE" aws-load-balancer-controller \
-    eks.amazonaws.com/role-arn="${ALB_IAM_ROLE}"
-else
-  echo "Service account already exists. Skipping creation."
-fi
+# -----------------------
+# 🛡️ Create IRSA for AWS Load Balancer Controller
+# -----------------------
 
-# Add and update Helm repos
+echo "[INFO] Creating Kubernetes service account for AWS Load Balancer Controller"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aws-load-balancer-controller
+  namespace: kube-system
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/AmazonEKSLoadBalancerControllerRole-staging
+EOF
+
+# -----------------------
+# Deploy AWS Load Balancer Controller
+# -----------------------
+
+echo "[INFO] Deploying AWS Load Balancer Controller via Helm"
 helm repo add eks https://aws.github.io/eks-charts
-helm repo add datadog https://helm.datadoghq.com
 helm repo update
 
-# Deploy AWS Load Balancer Controller
-echo "Deploying AWS Load Balancer Controller..."
 helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n "$NAMESPACE" \
+  --namespace kube-system \
   --set clusterName="$CLUSTER_NAME" \
   --set serviceAccount.create=false \
   --set serviceAccount.name=aws-load-balancer-controller \
   --set region="$REGION" \
-  --set vpcId=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --query "cluster.resourcesVpcConfig.vpcId" --output text) \
-  --wait
+  --set vpcId="vpc-1234567890abcdef0" \
+  --set image.repository=602401143452.dkr.ecr.$REGION.amazonaws.com/amazon/aws-load-balancer-controller
 
-# Deploy Datadog Agent
-echo "Deploying Datadog Agent via Helm..."
+# -----------------------
+# Deploy Datadog via Helm
+# -----------------------
+
+echo "[INFO] Deploying Datadog Helm Chart"
+helm repo add datadog https://helm.datadoghq.com
+helm repo update
+
 helm upgrade --install datadog-agent datadog/datadog \
-  --set datadog.apiKey="$DATADOG_API_KEY" \
+  --namespace "$DD_NAMESPACE" --create-namespace \
+  --set datadog.apiKey=DATADOG_API_KEY \
   --set datadog.site="datadoghq.com" \
   --set agents.containerLogs.enabled=true \
-  --set datadog.logs.enabled=true \
-  --set datadog.apm.enabled=true \
-  --set targetSystem=linux \
-  --wait
+  --set daemonset.useHostPID=true
 
-echo "✅ Post-deployment complete."
+# -----------------------
+# Deploy PostgreSQL-HA (Bitnami)
+# -----------------------
+
+echo "[INFO] Retrieving PostgreSQL passwords from AWS Secrets Manager..."
+MASTER_PASSWORD=$(aws secretsmanager get-secret-value --secret-id postgresql-ha-master-password --query SecretString --output text)
+REPLICATION_PASSWORD=$(aws secretsmanager get-secret-value --secret-id postgresql-ha-replication-password --query SecretString --output text)
+
+echo "[INFO] Installing PostgreSQL-HA via Helm"
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+helm upgrade --install $POSTGRES_RELEASE_NAME bitnami/postgresql-ha \
+  --namespace $POSTGRES_NAMESPACE --create-namespace \
+  --set postgresql.password="$MASTER_PASSWORD" \
+  --set postgresql.replicationPassword="$REPLICATION_PASSWORD" \
+  --set fullnameOverride=postgresql-ha \
+  --set global.storageClass=gp2 \
+  --set nodeSelector."nodegroup"="nodegroup-1" \
+  --set affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key="nodegroup" \
+  --set affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].operator="In" \
+  --set affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].values[0]="nodegroup-1"
+
+echo "[SUCCESS] EKS post-deployment setup completed."
