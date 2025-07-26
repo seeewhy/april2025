@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: EKS Cluster Setup in staging (us-west-2) with private endpoint, managed node groups, add-ons, and IRSA.
+Description: EKS Cluster Setup in staging (us-east-2) with private endpoint, managed node groups, add-ons, and IRSA.
 
 Parameters:
   Environment:
@@ -11,7 +11,7 @@ Parameters:
     Default: afritech-eks-cluster
   Region:
     Type: String
-    Default: us-west-2
+    Default: us-east-2
   VpcId:
     Type: AWS::EC2::VPC::Id
   PrivateSubnetIds:

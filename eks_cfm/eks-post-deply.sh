@@ -3,8 +3,8 @@
 set -euo pipefail
 
 # Input: Replace these with your actual values or export them as env vars
-CLUSTER_NAME=${CLUSTER_NAME:-my-eks-cluster}
-REGION=${REGION:-us-west-2}
+CLUSTER_NAME=${CLUSTER_NAME:-afritech-eks-cluster}
+REGION=${REGION:-us-east-2}
 NAMESPACE="kube-system"
 DATADOG_API_KEY=${DATADOG_API_KEY:-"REPLACE_ME"}
 
@@ -12,7 +12,7 @@ DATADOG_API_KEY=${DATADOG_API_KEY:-"REPLACE_ME"}
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # IAM role name based on CloudFormation
-ALB_ROLE_NAME="AmazonEKSLoadBalancerControllerRole-non-prod"
+ALB_ROLE_NAME="AmazonEKSLoadBalancerControllerRole-staging"
 ALB_IAM_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/${ALB_ROLE_NAME}"
 
 # Update kubeconfig
@@ -45,7 +45,7 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
   --set vpcId=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --query "cluster.resourcesVpcConfig.vpcId" --output text) \
   --wait
 
-# Deploy Datadog Agent (Optional)
+# Deploy Datadog Agent
 echo "Deploying Datadog Agent via Helm..."
 helm upgrade --install datadog-agent datadog/datadog \
   --set datadog.apiKey="$DATADOG_API_KEY" \
