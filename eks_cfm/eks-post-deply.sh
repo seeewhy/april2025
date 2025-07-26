@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -euo pipefail
-set -x  # Trace for debugging
+set -x  
 
 CLUSTER_NAME="afritech-eks-cluster"
 REGION="us-east-2"
@@ -15,7 +15,7 @@ echo "[INFO] Updating kubeconfig for cluster: $CLUSTER_NAME"
 aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME"
 
 # -----------------------
-# 🛡️ Create IRSA for AWS Load Balancer Controller
+# Create IRSA for AWS Load Balancer Controller
 # -----------------------
 
 echo "[INFO] Creating Kubernetes service account for AWS Load Balancer Controller"
@@ -30,7 +30,7 @@ metadata:
 EOF
 
 # -----------------------
-# Deploy AWS Load Balancer Controller
+# Deploy Load Balancer Controller
 # -----------------------
 
 echo "[INFO] Deploying AWS Load Balancer Controller via Helm"
@@ -56,7 +56,7 @@ helm repo update
 
 helm upgrade --install datadog-agent datadog/datadog \
   --namespace "$DD_NAMESPACE" --create-namespace \
-  --set datadog.apiKey=DATADOG_API_KEY \
+  --set datadog.apiKey=87b9dbcda7e5069cd30a4468154cca27 \
   --set datadog.site="datadoghq.com" \
   --set agents.containerLogs.enabled=true \
   --set daemonset.useHostPID=true
