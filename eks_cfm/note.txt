@@ -3,8 +3,6 @@ Create a customised vpc with private subnets
 
 What This Script eks-post-deploy Does:
 
-Deploys the CloudFormation template.
-
 Associates OIDC provider for IRSA (if not already done).
 
 Creates IAM role for AWS Load Balancer Controller with trust policy for IRSA.
